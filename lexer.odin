@@ -8,6 +8,10 @@ TokenKind :: enum {
 	//
 	LCurly,
 	RCurly,
+	LSquare,
+	RSquare,
+	//
+	Comma,
 }
 
 TokenLocation :: struct {
@@ -84,6 +88,12 @@ lexer_next_token :: proc(me: ^Json_Lexer) -> JsonToken {
 		token.kind = .LCurly
 	case '}':
 		token.kind = .RCurly
+	case '[':
+		token.kind = .LSquare
+	case ']':
+		token.kind = .RSquare
+	case ',':
+		token.kind = .Comma
 	case 0:
 		token.kind = .EOF
 	case:

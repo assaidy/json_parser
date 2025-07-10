@@ -88,25 +88,56 @@ parser_parse_object :: proc(me: ^Json_Parser) -> (Json_Value, bool) {
 		return Json_Value{}, false
 	}
 
-	json_value := Json_Value {
+	json_object := Json_Value {
 		kind      = .Object,
 		variant   = entries,
 		allocator = me.allocator,
 	}
-	return json_value, true
+	return json_object, true
 }
 
-// returns a json value that is only of kind .Object or .Array
-parse_json :: proc(text: string, allocator := context.allocator) -> (Json_Value, bool) {
-	lexer := lexer_make(text)
-	parser := parser_make(lexer, allocator)
+parser_parse_array :: proc(me: ^Json_Parser) -> (Json_Value, bool) {
+	parser_consume(me) // skip the [
 
-	#partial switch parser.current_token.kind {
+	values := make([dynamic]Json_Value, me.allocator)
+	for me.current_token.kind != .RSquare && me.current_token.kind != .EOF {
+		if value, ok := parser_parse_value(me); ok {
+			append_elem(&values, value)
+		} else {
+			delete(values)
+			return Json_Value{}, false
+		}
+
+		if !parser_expect_peek(me, .Comma) do break
+	}
+
+	if me.current_token.kind == .EOF {
+		delete(values)
+		return Json_Value{}, false
+	}
+
+	json_array := Json_Value {
+		kind      = .Array,
+		variant   = values,
+		allocator = me.allocator,
+	}
+	return json_array, true
+}
+
+parser_parse_value :: proc(me: ^Json_Parser) -> (Json_Value, bool) {
+	#partial switch me.current_token.kind {
 	case .LCurly:
-		return parser_parse_object(&parser)
-	//   case .LSquare:
-	// return parser_parse_Array(&parser)
+		return parser_parse_object(me)
+	case .LSquare:
+		return parser_parse_array(me)
 	case:
 		return Json_Value{}, false
 	}
+}
+
+// returns a json value that is only of kind .Object or .Array
+parse_json_string :: proc(text: string, allocator := context.allocator) -> (Json_Value, bool) {
+	lexer := lexer_make(text)
+	parser := parser_make(lexer, allocator)
+	return parser_parse_value(&parser)
 }

@@ -3,11 +3,11 @@ package main
 import "core:fmt"
 
 main :: proc() {
-	inputs := []string{``, `{}`, `{`, `[]`}
+	inputs := []string{``, `{}`, `{`, `[]`, `{[]}`, `[{[]}]`, `;`}
 	for input in inputs {
 		fmt.println("\ninput:", input)
 
-		root, ok := parse_json(input)
+		root, ok := parse_json_string(input)
 		if !ok {
 			fmt.println("invalid josn. enable debugging to show more info")
 			continue
