@@ -3,7 +3,20 @@ package main
 import "core:fmt"
 
 main :: proc() {
-	inputs := []string{``, `{}`, `{`, `[]`, `{[]}`, `[{[]}]`, `;`}
+	inputs := []string {
+		``,
+		`{}`,
+		`{`,
+		`[]`,
+		`{[]}`,
+		`[{[]}]`,
+		`;`,
+		`true`,
+		`false`,
+		`null`,
+		`nullx`,
+		`[null, true, false, {}]`,
+	}
 	for input in inputs {
 		fmt.println("\ninput:", input)
 

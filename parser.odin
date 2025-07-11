@@ -46,8 +46,8 @@ json_value_destroy :: proc(me: Json_Value) {
 Json_Parser :: struct {
 	allocator:     mem.Allocator,
 	lexer:         Json_Lexer,
-	current_token: JsonToken,
-	peek_token:    JsonToken,
+	current_token: Json_Token,
+	peek_token:    Json_Token,
 }
 
 parser_make :: proc(lexer: Json_Lexer, allocator: mem.Allocator) -> Json_Parser {
@@ -68,7 +68,7 @@ parser_consume :: proc(me: ^Json_Parser) {
 	}
 }
 
-parser_expect_peek :: proc(me: ^Json_Parser, kind: TokenKind) -> bool {
+parser_expect_peek :: proc(me: ^Json_Parser, kind: Token_Kind) -> bool {
 	if (me.peek_token.kind != kind) do return false
 	parser_consume(me)
 	return true
@@ -78,14 +78,14 @@ parser_parse_object :: proc(me: ^Json_Parser) -> (Json_Value, bool) {
 	parser_consume(me) // skip the {
 
 	entries := make([dynamic]Json_Entry, me.allocator)
-	for me.current_token.kind != .RCurly && me.current_token.kind != .EOF {
+	for me.current_token.kind != .RCurly {
+		if me.current_token.kind == .EOF {
+			delete(entries)
+			return Json_Value{}, false
+		}
+
 		// TODO: parse (Json_Entry)s
 		parser_consume(me)
-	}
-
-	if me.current_token.kind == .EOF {
-		delete(entries)
-		return Json_Value{}, false
 	}
 
 	json_object := Json_Value {
@@ -100,7 +100,12 @@ parser_parse_array :: proc(me: ^Json_Parser) -> (Json_Value, bool) {
 	parser_consume(me) // skip the [
 
 	values := make([dynamic]Json_Value, me.allocator)
-	for me.current_token.kind != .RSquare && me.current_token.kind != .EOF {
+	for me.current_token.kind != .RSquare {
+		if me.current_token.kind == .EOF {
+			delete(values)
+			return Json_Value{}, false
+		}
+
 		if value, ok := parser_parse_value(me); ok {
 			append_elem(&values, value)
 		} else {
@@ -108,12 +113,11 @@ parser_parse_array :: proc(me: ^Json_Parser) -> (Json_Value, bool) {
 			return Json_Value{}, false
 		}
 
-		if !parser_expect_peek(me, .Comma) do break
-	}
-
-	if me.current_token.kind == .EOF {
-		delete(values)
-		return Json_Value{}, false
+		if parser_expect_peek(me, .Comma) {
+			parser_consume(me)
+		} else {
+			break
+		}
 	}
 
 	json_array := Json_Value {
@@ -130,6 +134,12 @@ parser_parse_value :: proc(me: ^Json_Parser) -> (Json_Value, bool) {
 		return parser_parse_object(me)
 	case .LSquare:
 		return parser_parse_array(me)
+	case .Null:
+		return Json_Value{kind = .Null}, true
+	case .True:
+		return Json_Value{kind = .Boolean, variant = true}, true
+	case .False:
+		return Json_Value{kind = .Boolean, variant = false}, true
 	case:
 		return Json_Value{}, false
 	}
