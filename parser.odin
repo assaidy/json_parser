@@ -145,7 +145,6 @@ parser_parse_value :: proc(me: ^Json_Parser) -> (Json_Value, bool) {
 	}
 }
 
-// returns a json value that is only of kind .Object or .Array
 parse_json_string :: proc(text: string, allocator := context.allocator) -> (Json_Value, bool) {
 	lexer := lexer_make(text)
 	parser := parser_make(lexer, allocator)
