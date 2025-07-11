@@ -148,5 +148,7 @@ parser_parse_value :: proc(me: ^Json_Parser) -> (Json_Value, bool) {
 parse_json_string :: proc(text: string, allocator := context.allocator) -> (Json_Value, bool) {
 	lexer := lexer_make(text)
 	parser := parser_make(lexer, allocator)
+	// a valid json text must have a single value.
+	// that's why i only call this function once, without looping.
 	return parser_parse_value(&parser)
 }
