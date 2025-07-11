@@ -16,6 +16,7 @@ main :: proc() {
 		`null`,
 		`nullx`,
 		`[null, true, false, {}]`,
+		`{"male": true, "info": null}`,
 	}
 	for input in inputs {
 		fmt.println("\ninput:", input)

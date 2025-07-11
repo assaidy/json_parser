@@ -1,21 +1,25 @@
 package main
 
+import "core:fmt"
 import "core:unicode"
 
 Token_Kind :: enum {
 	EOF,
-	Illegal,
+	ILLEGAL,
+	ILLEGAL_UNTERMINATED_STRING,
 	//
-	LCurly,
-	RCurly,
-	LSquare,
-	RSquare,
+	LCURLY,
+	RCURLY,
+	LSQUARE,
+	RSQUARE,
 	//
-	Comma,
+	COMMA,
+	COLON,
 	//
-	Null,
-	True,
-	False,
+	NULL,
+	TRUE,
+	FALSE,
+	STRING,
 }
 
 Token_Location :: struct {
@@ -92,14 +96,29 @@ lexer_read_word :: proc(me: ^Json_Lexer) -> string {
 get_token_kind_from_word :: proc(word: string) -> Token_Kind {
 	switch word {
 	case "null":
-		return .Null
+		return .NULL
 	case "true":
-		return .True
+		return .TRUE
 	case "false":
-		return .False
+		return .FALSE
 	case:
-		return .Illegal
+		return .ILLEGAL
 	}
+}
+
+lexer_read_string :: proc(me: ^Json_Lexer) -> (string, Token_Kind) {
+	// position + 1 to skip the first "
+	position := me.position + 1
+	// escape sequences will be handled in the parser
+	for lexer_peek(me) != '"' {
+		if lexer_peek(me) == 0 {
+			return "", .ILLEGAL_UNTERMINATED_STRING
+		}
+		lexer_consume(me)
+	}
+	defer lexer_consume(me)
+	return me.text[position:me.read_position], .STRING
+
 }
 
 lexer_next_token :: proc(me: ^Json_Lexer) -> Json_Token {
@@ -110,22 +129,27 @@ lexer_next_token :: proc(me: ^Json_Lexer) -> Json_Token {
 	}
 	switch me.current_char {
 	case '{':
-		token.kind = .LCurly
+		token.kind = .LCURLY
 	case '}':
-		token.kind = .RCurly
+		token.kind = .RCURLY
 	case '[':
-		token.kind = .LSquare
+		token.kind = .LSQUARE
 	case ']':
-		token.kind = .RSquare
+		token.kind = .RSQUARE
 	case ',':
-		token.kind = .Comma
+		token.kind = .COMMA
+	case ':':
+		token.kind = .COLON
 	case 'n', 't', 'f':
 		token.value = lexer_read_word(me)
 		token.kind = get_token_kind_from_word(token.value)
+	case '"':
+		token.value, token.kind = lexer_read_string(me)
+	// TODO: lex numbers
 	case 0:
 		token.kind = .EOF
 	case:
-		token.kind = .Illegal
+		token.kind = .ILLEGAL
 	}
 	lexer_consume(me)
 	return token

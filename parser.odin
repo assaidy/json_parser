@@ -63,9 +63,19 @@ parser_make :: proc(lexer: Json_Lexer, allocator: mem.Allocator) -> Json_Parser 
 parser_consume :: proc(me: ^Json_Parser) {
 	me.current_token = me.peek_token
 	me.peek_token = lexer_next_token(&me.lexer)
-	if tok := me.current_token; tok.kind == .Illegal {
-		fmt.println("illegal literal:", tok.value)
+}
+
+// TODO: might be helpfull for error checking
+is_legal_token :: proc(token: Json_Token) -> bool {
+	#partial switch token.kind {
+	case .ILLEGAL:
+	// fmt.println("illegal literal:", token.value)
+	case .ILLEGAL_UNTERMINATED_STRING:
+	// fmt.println("unterminated string:", token.value)
+	case:
+		return true
 	}
+	return false
 }
 
 parser_expect_peek :: proc(me: ^Json_Parser, kind: Token_Kind) -> bool {
@@ -78,13 +88,33 @@ parser_parse_object :: proc(me: ^Json_Parser) -> (Json_Value, bool) {
 	parser_consume(me) // skip the {
 
 	entries := make([dynamic]Json_Entry, me.allocator)
-	for me.current_token.kind != .RCurly {
+	for me.current_token.kind != .RCURLY {
 		if me.current_token.kind == .EOF {
 			delete(entries)
 			return Json_Value{}, false
 		}
 
-		// TODO: parse (Json_Entry)s
+		entry: Json_Entry
+		if me.current_token.kind != .STRING {
+			delete(entries)
+			return Json_Value{}, false
+		}
+		// TODO: use a string builder and handle escape sequences
+		entry.key = me.current_token.value
+		if !parser_expect_peek(me, .COLON) {
+			delete(entries)
+			return Json_Value{}, false
+		}
+		parser_consume(me)
+		if value, ok := parser_parse_value(me); !ok {
+			delete(entries)
+			return Json_Value{}, false
+		} else {
+			entry.value = value
+		}
+		append(&entries, entry)
+
+		parser_expect_peek(me, .COMMA) // if there's an , consume it
 		parser_consume(me)
 	}
 
@@ -100,20 +130,20 @@ parser_parse_array :: proc(me: ^Json_Parser) -> (Json_Value, bool) {
 	parser_consume(me) // skip the [
 
 	values := make([dynamic]Json_Value, me.allocator)
-	for me.current_token.kind != .RSquare {
+	for me.current_token.kind != .RSQUARE {
 		if me.current_token.kind == .EOF {
 			delete(values)
 			return Json_Value{}, false
 		}
 
 		if value, ok := parser_parse_value(me); ok {
-			append_elem(&values, value)
+			append(&values, value)
 		} else {
 			delete(values)
 			return Json_Value{}, false
 		}
 
-		if parser_expect_peek(me, .Comma) {
+		if parser_expect_peek(me, .COMMA) {
 			parser_consume(me)
 		} else {
 			break
@@ -130,15 +160,15 @@ parser_parse_array :: proc(me: ^Json_Parser) -> (Json_Value, bool) {
 
 parser_parse_value :: proc(me: ^Json_Parser) -> (Json_Value, bool) {
 	#partial switch me.current_token.kind {
-	case .LCurly:
+	case .LCURLY:
 		return parser_parse_object(me)
-	case .LSquare:
+	case .LSQUARE:
 		return parser_parse_array(me)
-	case .Null:
+	case .NULL:
 		return Json_Value{kind = .Null}, true
-	case .True:
+	case .TRUE:
 		return Json_Value{kind = .Boolean, variant = true}, true
-	case .False:
+	case .FALSE:
 		return Json_Value{kind = .Boolean, variant = false}, true
 	case:
 		return Json_Value{}, false
