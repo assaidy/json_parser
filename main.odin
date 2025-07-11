@@ -17,6 +17,9 @@ main :: proc() {
 		`nullx`,
 		`[null, true, false, {}]`,
 		`{"male": true, "info": null}`,
+		`{"name": "Ahmad Assaidy", "male": true, "info": null}`,
+		`"\u2713"`, // unicode code of: ✓
+		`{"unicode": "\u2713"}`,
 	}
 	for input in inputs {
 		fmt.println("\ninput:", input)
