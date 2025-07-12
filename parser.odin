@@ -39,6 +39,7 @@ json_value_destroy :: proc(me: Json_Value, allocator := context.allocator) {
 }
 
 Error :: enum {
+	None,
 	Unexpected_Token,
 	Invalid_Escape_Sequence,
 	Unterminated_Object,
