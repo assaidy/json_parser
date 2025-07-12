@@ -5,6 +5,7 @@ import "core:mem"
 
 // TODO: add optional error logging
 // TODO: allocate values on the heap
+// TODO: proper testing
 // TODO: add formated printing
 
 main :: proc() {
