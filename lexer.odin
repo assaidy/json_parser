@@ -116,7 +116,9 @@ lexer_read_string :: proc(me: ^Json_Lexer) -> (string, Token_Kind) {
 		if lexer_peek(me) == 0 {
 			return "", .ILLEGAL_UNTERMINATED_STRING
 		}
+		previous := me.current_char
 		lexer_consume(me)
+		if me.current_char == '\\' && lexer_peek(me) == '"' && previous != '\\' do lexer_consume(me)
 	}
 	defer lexer_consume(me)
 	return me.text[position:me.read_position], .STRING
@@ -216,6 +218,7 @@ lexer_next_token :: proc(me: ^Json_Lexer) -> Json_Token {
 		return token // avoid consuming
 	case 0:
 		token.kind = .EOF
+		token.value = ""
 	case:
 		token.kind = .ILLEGAL_LITERAL
 	}

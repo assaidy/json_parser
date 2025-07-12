@@ -40,6 +40,7 @@ json_value_destroy :: proc(me: Json_Value, allocator := context.allocator) {
 
 Error :: enum {
 	None,
+	Empty_Text,
 	Unexpected_Token,
 	Invalid_Escape_Sequence,
 	Unterminated_Object,
@@ -162,8 +163,8 @@ parser_parse_string :: proc(me: ^Json_Parser) -> (res: Json_Value, err: Error) {
 }
 
 get_json_string :: proc(s: string, allocator: mem.Allocator) -> (res: string, err: Error) {
-	builder := strings.builder_make(context.temp_allocator)
-	defer free_all(context.temp_allocator)
+	builder := strings.builder_make()
+	defer strings.builder_destroy(&builder)
 	for i := 0; i < len(s); i += 1 {
 		if s[i] != '\\' {
 			strings.write_byte(&builder, s[i])
@@ -220,9 +221,7 @@ parser_parse_value :: proc(me: ^Json_Parser) -> (res: Json_Value, err: Error) {
 	case .FALSE:
 		res = Boolean(false)
 	case .NUMBER:
-		number, ok := strconv.parse_f64(me.current_token.value)
-		fmt.println(me.current_token.value)
-		ensure(ok)
+		number, _ := strconv.parse_f64(me.current_token.value)
 		res = Number(number)
 	case .STRING:
 		res, err = parser_parse_string(me)
@@ -230,6 +229,8 @@ parser_parse_value :: proc(me: ^Json_Parser) -> (res: Json_Value, err: Error) {
 		res, err = parser_parse_object(me)
 	case .LSQUARE:
 		res, err = parser_parse_array(me)
+	case .EOF:
+		err = .Empty_Text
 	case:
 		err = .Unexpected_Token
 	}

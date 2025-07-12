@@ -3,8 +3,6 @@ package main
 import "core:fmt"
 import "core:mem"
 
-// TODO: proper testing
-
 main :: proc() {
 	when ODIN_DEBUG {
 		track: mem.Tracking_Allocator
