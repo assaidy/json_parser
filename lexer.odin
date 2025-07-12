@@ -5,8 +5,9 @@ import "core:unicode"
 
 Token_Kind :: enum {
 	EOF,
-	ILLEGAL,
+	ILLEGAL_LITERAL,
 	ILLEGAL_UNTERMINATED_STRING,
+	ILLEGAL_NUMBER,
 	//
 	LCURLY,
 	RCURLY,
@@ -103,7 +104,7 @@ get_token_kind_from_word :: proc(word: string) -> Token_Kind {
 	case "false":
 		return .FALSE
 	case:
-		return .ILLEGAL
+		return .ILLEGAL_LITERAL
 	}
 }
 
@@ -123,11 +124,16 @@ lexer_read_string :: proc(me: ^Json_Lexer) -> (string, Token_Kind) {
 }
 
 lexer_read_number :: proc(me: ^Json_Lexer) -> (string, Token_Kind) {
-	position := me.position
+	start_position := me.position
 	got_minus: bool
 	got_point: bool
 	// ensure minus only appears on the left
 	is_negative := me.current_char == '-'
+	if is_negative {
+		if next := lexer_peek(me); !('0' <= next && next <= '9' || next == '.') {
+			return "", .ILLEGAL_NUMBER
+		}
+	}
 
 	in_exponent_part: bool
 	accept_plus_in_exponent: bool
@@ -154,14 +160,14 @@ lexer_read_number :: proc(me: ^Json_Lexer) -> (string, Token_Kind) {
 			got_point = true
 			// ensure there is at least one digit after the point
 			if next := lexer_peek(me); !('0' <= next && next <= '9') {
-				return "", .ILLEGAL
+				return "", .ILLEGAL_NUMBER
 			}
 		case 'E', 'e':
 			if in_exponent_part do break loop
 			in_exponent_part = true
 			if next := lexer_peek(me);
 			   !(next == '+' || next == '-' || '0' <= next && next <= '9') {
-				return "", .ILLEGAL
+				return "", .ILLEGAL_NUMBER
 			}
 			if next := lexer_peek(me); next == '-' {
 				accept_minus_in_exponent = true
@@ -177,7 +183,8 @@ lexer_read_number :: proc(me: ^Json_Lexer) -> (string, Token_Kind) {
 		lexer_consume(me)
 	}
 
-	return me.text[position:me.read_position], .NUMBER
+	end_position := me.read_position if me.current_char == 0 else me.position
+	return me.text[start_position:end_position], .NUMBER
 }
 
 lexer_next_token :: proc(me: ^Json_Lexer) -> Json_Token {
@@ -210,7 +217,7 @@ lexer_next_token :: proc(me: ^Json_Lexer) -> Json_Token {
 	case 0:
 		token.kind = .EOF
 	case:
-		token.kind = .ILLEGAL
+		token.kind = .ILLEGAL_LITERAL
 	}
 	lexer_consume(me)
 	return token

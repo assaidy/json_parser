@@ -5,53 +5,51 @@ import "core:mem"
 import "core:strconv"
 import "core:strings"
 
-Value_Kind :: enum {
-	VALUE_NULL,
-	VALUE_BOOLEAN,
-	VALUE_NUMBER,
-	VALUE_STRING,
-	VALUE_OBJECT,
-	VALUE_ARRAY,
+Null :: distinct rawptr
+Boolean :: bool
+Number :: f64
+String :: string
+Object :: distinct map[string]Json_Value
+Array :: distinct [dynamic]Json_Value
+
+Json_Value :: union {
+	Null,
+	Boolean,
+	Number,
+	String,
+	Object,
+	Array,
 }
 
-Json_String :: struct {
-	allocator: mem.Allocator,
-	value:     string,
-}
-
-Json_Entry :: struct {
-	key:   Json_String,
-	value: Json_Value,
-}
-
-json_entry_destroy :: proc(entry: Json_Entry) {
-	delete(entry.key.value, entry.key.allocator)
-	json_value_destroy(entry.value)
-}
-
-Json_Value :: struct {
-	kind:      Value_Kind,
-	variant:   union {
-		bool,
-		f64,
-		Json_String,
-		[dynamic]Json_Entry,
-		[dynamic]Json_Value,
-	},
-	allocator: mem.Allocator, // used in deallocation
-}
-
-json_value_destroy :: proc(me: Json_Value) {
-	#partial switch val in me.variant {
-	case Json_String:
-		delete(val.value, val.allocator)
-	case [dynamic]Json_Entry:
-		for e in val do json_entry_destroy(e)
-		delete(val)
-	case [dynamic]Json_Value:
-		for v in val do json_value_destroy(v)
-		delete(val)
+json_value_destroy :: proc(me: Json_Value, allocator := context.allocator) {
+	context.allocator = allocator
+	#partial switch value in me {
+	case String:
+		delete(value)
+	case Object:
+		for k, v in value {
+			delete(k)
+			json_value_destroy(v)
+		}
+		delete(value)
+	case Array:
+		for v in value do json_value_destroy(v)
+		delete(value)
 	}
+}
+
+Error :: enum {
+	Unexpected_Token,
+	Invalid_Escape_Sequence,
+	Unterminated_Object,
+	Missing_Object_Key,
+	Missing_Colon_After_Key,
+	Duplicate_Object_Key,
+	Invalid_Json_Literal,
+	Unterminated_String,
+	Unterminated_Array,
+	Invalid_Number,
+	Many_Values_In_Text,
 }
 
 Json_Parser :: struct {
@@ -61,124 +59,110 @@ Json_Parser :: struct {
 	peek_token:    Json_Token,
 }
 
-parser_make :: proc(lexer: Json_Lexer, allocator: mem.Allocator) -> Json_Parser {
+parser_make :: proc(
+	lexer: Json_Lexer,
+	allocator: mem.Allocator,
+) -> (
+	res: Json_Parser,
+	err: Error,
+) {
 	parser := Json_Parser {
 		allocator = allocator,
 		lexer     = lexer,
 	}
-	parser_consume(&parser)
-	parser_consume(&parser)
-	return parser
+	parser_consume(&parser) or_return
+	parser_consume(&parser) or_return
+	return parser, nil
 }
 
-parser_consume :: proc(me: ^Json_Parser) {
+parser_consume :: proc(me: ^Json_Parser) -> Error {
 	me.current_token = me.peek_token
 	me.peek_token = lexer_next_token(&me.lexer)
+	return is_legal_token(me.current_token)
 }
 
-// TODO: might be helpfull for error checking
-is_legal_token :: proc(token: Json_Token) -> bool {
+is_legal_token :: proc(token: Json_Token) -> Error {
 	#partial switch token.kind {
-	case .ILLEGAL:
-	// fmt.println("illegal literal:", token.value)
+	case .ILLEGAL_LITERAL:
+		return .Invalid_Json_Literal
 	case .ILLEGAL_UNTERMINATED_STRING:
-	// fmt.println("unterminated string:", token.value)
-	case:
-		return true
+		return .Unterminated_String
+	case .ILLEGAL_NUMBER:
+		return .Invalid_Number
 	}
-	return false
+	return nil
 }
 
-parser_expect_peek :: proc(me: ^Json_Parser, kind: Token_Kind) -> bool {
-	if (me.peek_token.kind != kind) do return false
-	parser_consume(me)
-	return true
+parser_expect_peek :: proc(me: ^Json_Parser, kind: Token_Kind) -> (res: bool, err: Error) {
+	if (me.peek_token.kind != kind) do return false, nil
+	parser_consume(me) or_return
+	return true, nil
 }
 
-parser_parse_object :: proc(me: ^Json_Parser) -> (Json_Value, bool) {
+parser_parse_object :: proc(me: ^Json_Parser) -> (res: Json_Value, err: Error) {
 	parser_consume(me) // skip the {
 
-	entries := make([dynamic]Json_Entry, me.allocator)
+	object := make(Object, me.allocator)
+	defer if err != nil {
+		delete(object)
+	}
 	for me.current_token.kind != .RCURLY {
 		if me.current_token.kind == .EOF {
-			delete(entries)
-			return Json_Value{}, false
+			err = .Unterminated_Object;return
 		}
-
-		entry: Json_Entry
 		if me.current_token.kind != .STRING {
-			delete(entries)
-			return Json_Value{}, false
+			err = .Missing_Object_Key;return
 		}
-		if json_string, ok := get_json_string(me.current_token.value, me.allocator); !ok {
-			delete(entries)
-			return Json_Value{}, false
-		} else {
-			entry.key = json_string
+		key := get_json_string(me.current_token.value, me.allocator) or_return
+		if key in object {
+			err = .Duplicate_Object_Key;return
 		}
-		if !parser_expect_peek(me, .COLON) {
-			delete(entries)
-			return Json_Value{}, false
+		ok := parser_expect_peek(me, .COLON) or_return
+		if !ok {
+			err = .Missing_Colon_After_Key;return
 		}
 		parser_consume(me)
-		if value, ok := parser_parse_value(me); !ok {
-			delete(entries)
-			return Json_Value{}, false
-		} else {
-			entry.value = value
-		}
-
-		append(&entries, entry)
+		value := parser_parse_value(me) or_return
+		object[key] = value
 
 		parser_expect_peek(me, .COMMA) // if there's a ',' consume it
 		parser_consume(me)
 	}
-
-	json_object := Json_Value {
-		kind      = .VALUE_OBJECT,
-		variant   = entries,
-		allocator = me.allocator,
-	}
-	return json_object, true
+	return object, nil
 }
 
-parser_parse_array :: proc(me: ^Json_Parser) -> (Json_Value, bool) {
+parser_parse_array :: proc(me: ^Json_Parser) -> (res: Json_Value, err: Error) {
 	parser_consume(me) // skip the [
 
-	values := make([dynamic]Json_Value, me.allocator)
+	array := make(Array, me.allocator)
+	defer if err != nil {
+		delete(array)
+	}
 	for me.current_token.kind != .RSQUARE {
 		if me.current_token.kind == .EOF {
-			delete(values)
-			return Json_Value{}, false
+			err = .Unterminated_Array;return
 		}
-
-		if value, ok := parser_parse_value(me); ok {
-			append(&values, value)
-		} else {
-			delete(values)
-			return Json_Value{}, false
-		}
-
-		if parser_expect_peek(me, .COMMA) {
-			parser_consume(me)
+		value := parser_parse_value(me) or_return
+		append(&array, value)
+		ok := parser_expect_peek(me, .COMMA) or_return
+		if ok {
+			parser_consume(me) or_return
 		} else {
 			break
 		}
 	}
-
-	return Json_Value{kind = .VALUE_ARRAY, variant = values, allocator = me.allocator}, true
+	return array, nil
 }
 
-parser_parse_string :: proc(me: ^Json_Parser) -> (Json_Value, bool) {
-	json_string, ok := get_json_string(me.current_token.value, me.allocator)
-	if !ok {
-		return Json_Value{}, false
-	}
-	return Json_Value{kind = .VALUE_STRING, variant = json_string}, true
+parser_parse_string :: proc(me: ^Json_Parser) -> (res: Json_Value, err: Error) {
+	s := get_json_string(me.current_token.value, me.allocator) or_return
+	res = String(s)
+	return
 }
 
-get_json_string :: proc(s: string, allocator: mem.Allocator) -> (Json_String, bool) {
-	builder := strings.builder_make(allocator)
+get_json_string :: proc(s: string, allocator: mem.Allocator) -> (res: string, err: Error) {
+	builder := strings.builder_make(context.temp_allocator)
+	defer free_all(context.temp_allocator)
 	for i := 0; i < len(s); i += 1 {
 		if s[i] != '\\' {
 			strings.write_byte(&builder, s[i])
@@ -205,59 +189,63 @@ get_json_string :: proc(s: string, allocator: mem.Allocator) -> (Json_String, bo
 				case 'u':
 					i += 1
 					if i + 4 > len(s) {
-						return Json_String{}, false
+						err = .Invalid_Escape_Sequence;return
 					}
 					// parse the 4 hex digits
 					if n, ok := strconv.parse_int(s[i:i + 4], 16); !ok {
-						return Json_String{}, false
+						err = .Invalid_Escape_Sequence;return
 					} else {
 						strings.write_rune(&builder, rune(n))
 					}
 					i += 3
 				case:
-					return Json_String{}, false
+					err = .Invalid_Escape_Sequence;return
 				}
 			} else {
-				return Json_String{}, false
+				err = .Invalid_Escape_Sequence;return
 			}
 		}
 	}
-	return Json_String{value = strings.to_string(builder), allocator = allocator}, true
+	res = String(strings.clone(strings.to_string(builder), allocator))
+	return
 }
 
-parser_parse_number :: proc(me: ^Json_Parser) -> (Json_Value, bool) {
-	json_number, ok := strconv.parse_f64(me.current_token.value)
-	if !ok {
-		return Json_Value{}, false
-	}
-	return Json_Value{kind = .VALUE_NUMBER, variant = json_number}, true
-}
-
-parser_parse_value :: proc(me: ^Json_Parser) -> (Json_Value, bool) {
+parser_parse_value :: proc(me: ^Json_Parser) -> (res: Json_Value, err: Error) {
 	#partial switch me.current_token.kind {
-	case .LCURLY:
-		return parser_parse_object(me)
-	case .LSQUARE:
-		return parser_parse_array(me)
 	case .NULL:
-		return Json_Value{kind = .VALUE_NULL}, true
+		res = Null{}
 	case .TRUE:
-		return Json_Value{kind = .VALUE_BOOLEAN, variant = true}, true
+		res = Boolean(true)
 	case .FALSE:
-		return Json_Value{kind = .VALUE_BOOLEAN, variant = false}, true
-	case .STRING:
-		return parser_parse_string(me)
+		res = Boolean(false)
 	case .NUMBER:
-		return parser_parse_number(me)
+		number, ok := strconv.parse_f64(me.current_token.value)
+		fmt.println(me.current_token.value)
+		ensure(ok)
+		res = Number(number)
+	case .STRING:
+		res, err = parser_parse_string(me)
+	case .LCURLY:
+		res, err = parser_parse_object(me)
+	case .LSQUARE:
+		res, err = parser_parse_array(me)
 	case:
-		return Json_Value{}, false
+		err = .Unexpected_Token
 	}
+	// a valid json text must have a single value
+	parser_consume(me) or_return
+	if me.current_token.kind != .EOF do err = .Many_Values_In_Text
+	return
 }
 
-parse_json_text :: proc(text: string, allocator := context.allocator) -> (Json_Value, bool) {
+parse_json_text :: proc(
+	text: string,
+	allocator := context.allocator,
+) -> (
+	res: Json_Value,
+	err: Error,
+) {
 	lexer := lexer_make(text)
-	parser := parser_make(lexer, allocator)
-	// a valid json text must have a single value.
-	// that's why i only call this function once, without looping.
+	parser := parser_make(lexer, allocator) or_return
 	return parser_parse_value(&parser)
 }

@@ -3,10 +3,7 @@ package main
 import "core:fmt"
 import "core:mem"
 
-// TODO: add optional error logging
-// TODO: allocate values on the heap
 // TODO: proper testing
-// TODO: add formated printing
 
 main :: proc() {
 	when ODIN_DEBUG {
@@ -65,9 +62,9 @@ main :: proc() {
 	for input in inputs {
 		fmt.println("\ninput:", input)
 
-		root, ok := parse_json_text(input)
-		if !ok {
-			fmt.println("invalid josn. enable debugging to show more info")
+		root, err := parse_json_text(input)
+		if err != nil {
+			fmt.println("error:", err)
 			continue
 		}
 		defer json_value_destroy(root)
