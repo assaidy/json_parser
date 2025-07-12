@@ -20,6 +20,7 @@ Token_Kind :: enum {
 	TRUE,
 	FALSE,
 	STRING,
+	NUMBER,
 }
 
 Token_Location :: struct {
@@ -80,14 +81,14 @@ lexer_peek :: proc(me: ^Json_Lexer) -> byte {
 }
 
 lexer_skip_whitespaces :: proc(me: ^Json_Lexer) {
-	for unicode.is_white_space(cast(rune)me.current_char) {
+	for unicode.is_white_space(rune(me.current_char)) {
 		lexer_consume(me)
 	}
 }
 
 lexer_read_word :: proc(me: ^Json_Lexer) -> string {
 	position := me.position
-	for unicode.is_alpha(cast(rune)lexer_peek(me)) {
+	for unicode.is_alpha(rune(lexer_peek(me))) {
 		lexer_consume(me)
 	}
 	return me.text[position:me.read_position]
@@ -121,6 +122,64 @@ lexer_read_string :: proc(me: ^Json_Lexer) -> (string, Token_Kind) {
 
 }
 
+lexer_read_number :: proc(me: ^Json_Lexer) -> (string, Token_Kind) {
+	position := me.position
+	got_minus: bool
+	got_point: bool
+	// ensure minus only appears on the left
+	is_negative := me.current_char == '-'
+
+	in_exponent_part: bool
+	accept_plus_in_exponent: bool
+	accept_minus_in_exponent: bool
+
+	loop: for me.current_char != 0 {
+		switch me.current_char {
+		case '-':
+			if in_exponent_part {
+				if !accept_minus_in_exponent do break loop
+				accept_minus_in_exponent = false
+			} else {
+				if got_minus || !is_negative do break loop
+				got_minus = true
+			}
+		case '+':
+			if !in_exponent_part || !accept_plus_in_exponent do break loop
+			accept_plus_in_exponent = false
+		case '.':
+			// ensure no points in the exponent part
+			if in_exponent_part do break loop
+
+			if got_point do break loop
+			got_point = true
+			// ensure there is at least one digit after the point
+			if next := lexer_peek(me); !('0' <= next && next <= '9') {
+				return "", .ILLEGAL
+			}
+		case 'E', 'e':
+			if in_exponent_part do break loop
+			in_exponent_part = true
+			if next := lexer_peek(me);
+			   !(next == '+' || next == '-' || '0' <= next && next <= '9') {
+				return "", .ILLEGAL
+			}
+			if next := lexer_peek(me); next == '-' {
+				accept_minus_in_exponent = true
+			} else if next == '+' {
+				accept_plus_in_exponent = true
+			}
+		case '0' ..= '9':
+		// don't do anything. we consume at the end of the iteration
+		// odin will not step to the next case block
+		case:
+			break loop
+		}
+		lexer_consume(me)
+	}
+
+	return me.text[position:me.read_position], .NUMBER
+}
+
 lexer_next_token :: proc(me: ^Json_Lexer) -> Json_Token {
 	lexer_skip_whitespaces(me)
 	token := Json_Token {
@@ -145,7 +204,9 @@ lexer_next_token :: proc(me: ^Json_Lexer) -> Json_Token {
 		token.kind = get_token_kind_from_word(token.value)
 	case '"':
 		token.value, token.kind = lexer_read_string(me)
-	// TODO: lex numbers
+	case '0' ..= '9', '-', '.':
+		token.value, token.kind = lexer_read_number(me)
+		return token // avoid consuming
 	case 0:
 		token.kind = .EOF
 	case:

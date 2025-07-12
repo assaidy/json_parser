@@ -211,7 +211,7 @@ get_json_string :: proc(s: string, allocator: mem.Allocator) -> (Json_String, bo
 					if n, ok := strconv.parse_int(s[i:i + 4], 16); !ok {
 						return Json_String{}, false
 					} else {
-						strings.write_rune(&builder, cast(rune)n)
+						strings.write_rune(&builder, rune(n))
 					}
 					i += 3
 				case:
@@ -223,6 +223,14 @@ get_json_string :: proc(s: string, allocator: mem.Allocator) -> (Json_String, bo
 		}
 	}
 	return Json_String{value = strings.to_string(builder), allocator = allocator}, true
+}
+
+parser_parse_number :: proc(me: ^Json_Parser) -> (Json_Value, bool) {
+	json_number, ok := strconv.parse_f64(me.current_token.value)
+	if !ok {
+		return Json_Value{}, false
+	}
+	return Json_Value{kind = .VALUE_NUMBER, variant = json_number}, true
 }
 
 parser_parse_value :: proc(me: ^Json_Parser) -> (Json_Value, bool) {
@@ -239,12 +247,14 @@ parser_parse_value :: proc(me: ^Json_Parser) -> (Json_Value, bool) {
 		return Json_Value{kind = .VALUE_BOOLEAN, variant = false}, true
 	case .STRING:
 		return parser_parse_string(me)
+	case .NUMBER:
+		return parser_parse_number(me)
 	case:
 		return Json_Value{}, false
 	}
 }
 
-parse_json_string :: proc(text: string, allocator := context.allocator) -> (Json_Value, bool) {
+parse_json_text :: proc(text: string, allocator := context.allocator) -> (Json_Value, bool) {
 	lexer := lexer_make(text)
 	parser := parser_make(lexer, allocator)
 	// a valid json text must have a single value.
