@@ -4,6 +4,7 @@ import "core:fmt"
 import "core:mem"
 
 // TODO: add optional error logging
+// TODO: add formated printing
 
 main :: proc() {
 	when ODIN_DEBUG {
