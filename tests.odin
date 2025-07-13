@@ -15,7 +15,7 @@ compare_values :: proc(value1, value2: Json_Value) -> bool {
 		v2 := value2.(Number) or_return
 		return v1 == v2
 	case String:
-		v2 := value2.(string) or_return
+		v2 := value2.(String) or_return
 		return v1 == v2
 	case Object:
 		v2 := value2.(Object) or_return
