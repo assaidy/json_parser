@@ -23,17 +23,17 @@ Json_Value :: union {
 
 json_value_destroy :: proc(me: Json_Value, allocator := context.allocator) {
 	context.allocator = allocator
-	#partial switch value in me {
+	#partial switch &value in me {
 	case String:
 		delete(value)
 	case Object:
-		for k, v in value {
+		for k, &v in value {
 			delete(k)
 			json_value_destroy(v)
 		}
 		delete(value)
 	case Array:
-		for v in value do json_value_destroy(v)
+		for &v in value do json_value_destroy(v)
 		delete(value)
 	}
 }
@@ -52,6 +52,8 @@ Error :: enum {
 	Unterminated_Array,
 	Invalid_Number,
 	Many_Values_In_Text,
+	Missing_Comma_Between_Elements,
+	Trailing_Comma_Not_Allowed,
 }
 
 Json_Parser :: struct {
@@ -104,9 +106,11 @@ parser_expect_peek :: proc(me: ^Json_Parser, kind: Token_Kind) -> (res: bool, er
 parser_parse_object :: proc(me: ^Json_Parser) -> (res: Json_Value, err: Error) {
 	parser_consume(me) // skip the {
 
-	object := make(Object, me.allocator)
+	context.allocator = me.allocator
+
+	object := make(Object)
 	defer if err != nil {
-		delete(object)
+		json_value_destroy(object)
 	}
 	for me.current_token.kind != .RCURLY {
 		if me.current_token.kind == .EOF {
@@ -115,20 +119,33 @@ parser_parse_object :: proc(me: ^Json_Parser) -> (res: Json_Value, err: Error) {
 		if me.current_token.kind != .STRING {
 			err = .Missing_Object_Key;return
 		}
+
 		key := get_json_string(me.current_token.value, me.allocator) or_return
 		if key in object {
+			delete(key)
 			err = .Duplicate_Object_Key;return
 		}
 		ok := parser_expect_peek(me, .COLON) or_return
 		if !ok {
+			delete(key)
 			err = .Missing_Colon_After_Key;return
 		}
-		parser_consume(me)
+		parser_consume(me) or_return
+
 		value := parser_parse_value(me) or_return
 		object[key] = value
 
-		parser_expect_peek(me, .COMMA) // if there's a ',' consume it
-		parser_consume(me)
+		ok = parser_expect_peek(me, .COMMA) or_return
+		if ok {
+			if me.peek_token.kind != .STRING {
+				err = .Trailing_Comma_Not_Allowed;return
+			}
+		} else {
+			if me.peek_token.kind != .RCURLY {
+				err = .Missing_Comma_Between_Elements;return
+			}
+		}
+		parser_consume(me) or_return
 	}
 	return object, nil
 }
@@ -138,7 +155,7 @@ parser_parse_array :: proc(me: ^Json_Parser) -> (res: Json_Value, err: Error) {
 
 	array := make(Array, me.allocator)
 	defer if err != nil {
-		delete(array)
+		json_value_destroy(array, me.allocator)
 	}
 	for me.current_token.kind != .RSQUARE {
 		if me.current_token.kind == .EOF {
@@ -146,12 +163,17 @@ parser_parse_array :: proc(me: ^Json_Parser) -> (res: Json_Value, err: Error) {
 		}
 		value := parser_parse_value(me) or_return
 		append(&array, value)
-		ok := parser_expect_peek(me, .COMMA) or_return
-		if ok {
-			parser_consume(me) or_return
-		} else {
-			break
+		if me.peek_token.kind != .RSQUARE {
+			ok := parser_expect_peek(me, .COMMA) or_return
+			if ok {
+				if me.peek_token.kind == .RSQUARE {
+					err = .Trailing_Comma_Not_Allowed;return
+				}
+			} else {
+				err = .Missing_Comma_Between_Elements;return
+			}
 		}
+		parser_consume(me) or_return
 	}
 	return array, nil
 }
@@ -234,9 +256,6 @@ parser_parse_value :: proc(me: ^Json_Parser) -> (res: Json_Value, err: Error) {
 	case:
 		err = .Unexpected_Token
 	}
-	// a valid json text must have a single value
-	parser_consume(me) or_return
-	if me.current_token.kind != .EOF do err = .Many_Values_In_Text
 	return
 }
 
@@ -249,5 +268,10 @@ parse_json_text :: proc(
 ) {
 	lexer := lexer_make(text)
 	parser := parser_make(lexer, allocator) or_return
-	return parser_parse_value(&parser)
+	res = parser_parse_value(&parser) or_return
+	defer if err != nil do json_value_destroy(res)
+	// a valid json text must have a single value
+	parser_consume(&parser) or_return
+	if parser.current_token.kind != .EOF do err = .Many_Values_In_Text
+	return
 }

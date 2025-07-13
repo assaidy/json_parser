@@ -50,20 +50,31 @@ Test_Case :: struct {
 	expected_error: Error,
 }
 
-check_test_case :: proc(t: ^testing.T, i: int, tt: Test_Case, value: Json_Value, err: Error) {
+check_test_case :: proc(
+	t: ^testing.T,
+	i: int,
+	tt: Test_Case,
+	value: Json_Value,
+	err: Error,
+	loc := #caller_location,
+) {
 	testing.expectf(
 		t,
 		tt.expected_error == err,
-		"expected error: %v, got: %v",
+		"[%d] expected error: %v, got: %v",
+		i,
 		tt.expected_error,
 		err,
+		loc = loc,
 	)
 	testing.expectf(
 		t,
 		compare_values(tt.ouptut, value),
-		"expected value: %v, got: %v",
+		"[%d] expected value: %v, got: %v",
+		i,
 		tt.ouptut,
 		value,
+		loc = loc,
 	)
 }
 
@@ -114,9 +125,23 @@ test_string :: proc(t: ^testing.T) {
 	}
 }
 
-@(test) // TODO:
+@(test)
 test_number :: proc(t: ^testing.T) {
-	tests := []Test_Case{}
+	tests := []Test_Case {
+		{`0`, Number(0.0), .None},
+		{`-0`, Number(-0.0), .None},
+		{`123`, Number(123.0), .None},
+		{`-123`, Number(-123.0), .None},
+		{`3.14`, Number(3.14), .None},
+		{`-3.14`, Number(-3.14), .None},
+		{`1e10`, Number(1e10), .None},
+		{`-1E-10`, Number(-1e-10), .None},
+		{`1.0e+5`, Number(1.0e+5), .None},
+		{`0123`, Number(123), .None},
+		{`1.`, nil, .Invalid_Number},
+		{`.5`, Number(0.5), .None},
+		{`--1`, nil, .Invalid_Number},
+	}
 
 	for tt, i in tests {
 		value, err := parse_json_text(tt.input)
@@ -125,9 +150,29 @@ test_number :: proc(t: ^testing.T) {
 	}
 }
 
-@(test) // TODO:
+@(test)
 test_object :: proc(t: ^testing.T) {
-	tests := []Test_Case{}
+	tests := []Test_Case {
+		{`{}`, Object{}, .None},
+		{`{"a":1}`, Object{"a" = Number(1.0)}, .None},
+		{`{"a":true, "b":null}`, Object{"a" = Boolean(true), "b" = Null{}}, .None},
+		{`{"nested":{"x":10}}`, Object{"nested" = Object{"x" = Number(10.0)}}, .None},
+		{
+			`{ "a" : { "b" : { "c" : null } } }`,
+			Object{"a" = Object{"b" = Object{"c" = Null{}}}},
+			.None,
+		},
+		{`{"name": "Ahmad Assaidy"}`, Object{"name" = String("Ahmad Assaidy")}, .None},
+
+		// Invalid cases
+		{`{`, nil, .Unterminated_Object},
+		{`{"a"}`, nil, .Missing_Colon_After_Key},
+		{`{"a":}`, nil, .Unexpected_Token},
+		{`{"a":1,}`, nil, .Trailing_Comma_Not_Allowed},
+		{`{123: "value"}`, nil, .Missing_Object_Key},
+		{`{"a":1 "b":2}`, nil, .Missing_Comma_Between_Elements},
+		{`{"a":1,"a":2}`, nil, .Duplicate_Object_Key},
+	}
 
 	for tt, i in tests {
 		value, err := parse_json_text(tt.input)
@@ -136,9 +181,43 @@ test_object :: proc(t: ^testing.T) {
 	}
 }
 
-@(test) // TODO:
+@(test)
 test_array :: proc(t: ^testing.T) {
-	tests := []Test_Case{}
+	tests := []Test_Case {
+		{`[]`, Array{}, .None},
+		{`[null]`, Array{Null{}}, .None},
+		{`[true, false]`, Array{Boolean(true), Boolean(false)}, .None},
+		{`[1, 2, 3]`, Array{Number(1.0), Number(2.0), Number(3.0)}, .None},
+		{`["a", "b", "c"]`, Array{String("a"), String("b"), String("c")}, .None},
+		{`[{"a":1}, {"b":2}]`, Array{Object{"a" = Number(1.0)}, Object{"b" = Number(2.0)}}, .None},
+		{
+			`[[1, 2], [3, 4]]`,
+			Array{Array{Number(1.0), Number(2.0)}, Array{Number(3.0), Number(4.0)}},
+			.None,
+		},
+		{
+			`[1, "two", null, true, {"key": "value"}, [5]]`,
+			Array {
+				Number(1.0),
+				String("two"),
+				Null{},
+				Boolean(true),
+				Object{"key" = String("value")},
+				Array{Number(5.0)},
+			},
+			.None,
+		},
+
+		// Invalid arrays
+		{`[`, nil, .Unterminated_Array},
+		{`[1,]`, nil, .Trailing_Comma_Not_Allowed},
+		{`[,1]`, nil, .Unexpected_Token},
+		{`[1 2]`, nil, .Missing_Comma_Between_Elements},
+		{`[1,,2]`, nil, .Unexpected_Token},
+		{`[1, true false]`, nil, .Missing_Comma_Between_Elements},
+		{`[`, nil, .Unterminated_Array},
+		{``, nil, .Empty_Text},
+	}
 
 	for tt, i in tests {
 		value, err := parse_json_text(tt.input)
